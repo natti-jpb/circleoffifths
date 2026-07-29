@@ -291,18 +291,23 @@ export default function Home() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  const getEngine = useCallback(() => {
+  // Create or resume AudioContext — must be called from a user gesture on mobile
+  const getEngine = useCallback(async () => {
     if (!engineRef.current) {
       const ctx = new AudioContext();
       engineRef.current = { ctx, instrument:null, loadedName:null, loading:false };
     }
-    if (engineRef.current.ctx.state === "suspended") engineRef.current.ctx.resume();
+    // Mobile browsers require resume() inside a user gesture handler
+    if (engineRef.current.ctx.state === "suspended") {
+      await engineRef.current.ctx.resume();
+    }
     return engineRef.current;
   }, []);
 
-  // Pre-load instrument when style changes
+  // Pre-load instrument when style changes (don't create AudioContext here — wait for user tap)
   useEffect(() => {
-    const engine = getEngine();
+    if (!engineRef.current) return; // Only pre-load if engine already exists (user has tapped)
+    const engine = engineRef.current;
     const instName = SOUNDFONT_INSTRUMENTS[style];
     setLoading(true);
     setReady(false);
@@ -310,16 +315,20 @@ export default function Home() {
       setLoading(false);
       setReady(true);
     });
-  }, [style, getEngine]);
+  }, [style]);
 
   useEffect(() => {
     return () => { engineRef.current?.ctx.close(); };
   }, []);
 
   const handleChordClick = useCallback(async (chord: string) => {
-    const engine = getEngine();
+    // getEngine is called inside the click handler — this satisfies mobile autoplay policy
+    const engine = await getEngine();
     const instName = SOUNDFONT_INSTRUMENTS[style];
+    setLoading(true);
     const inst = await loadInstrument(engine, instName);
+    setLoading(false);
+    setReady(true);
     const chordNotes = GUITAR_CHORD_NOTES[chord];
     if (!chordNotes) return;
 
@@ -331,7 +340,7 @@ export default function Home() {
   }, [getEngine, style]);
 
   const handleNoteClick = useCallback(async (note: string) => {
-    const engine = getEngine();
+    const engine = await getEngine();
     const instName = SOUNDFONT_INSTRUMENTS[style];
     const inst = await loadInstrument(engine, instName);
     const noteWithOctave = NOTE_WITH_OCTAVE[note];
